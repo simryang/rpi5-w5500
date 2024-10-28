@@ -1,0 +1,1 @@
+/home/ssekim/rpi/linux/tools/spi/../../include/uapi/linux/spi/spidev.h
