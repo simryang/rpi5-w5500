@@ -700,7 +700,7 @@ static int dw_axi_dma_set_hw_desc(struct axi_dma_chan *chan,
 
 	mem_width = __ffs(data_width | mem_addr | len);
 
-//  sekim XXXX 20241028 Disable Align Check (???????)
+//  sekim XXXX 20241028 Disable buffer alignment Check (???????)
 /*
 	if (!IS_ALIGNED(mem_addr, 4)) {
 		dev_err(chan->chip->dev, "invalid buffer alignment\n");

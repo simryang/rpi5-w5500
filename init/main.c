@@ -884,11 +884,7 @@ void start_kernel(void)
 	init_vmlinux_build_id();
 
 	// sekim 20241013 Start Kernel
-	for (int ii=0; ii<5; ii++)
-	{
-		mdelay(100);
-		pr_info("XXX W5K : start_kernel() %d \n", ii);
-	}	
+	pr_info("W5K : start_kernel() \n");
 
 	cgroup_init_early();
 

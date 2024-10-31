@@ -654,6 +654,7 @@ static void w5200_memory_configure(struct w5100_priv *priv)
 static void w5500_memory_configure(struct w5100_priv *priv)
 {
 	int i;
+	printk("W5K : w5500_memory_configure() \n");
 
 	/* Configure internal RX memory as 16K RX buffer and
 	 * internal TX memory as 16K TX buffer
@@ -671,7 +672,7 @@ static int w5100_hw_reset(struct w5100_priv *priv)
 {
 	u32 rtr;
 
-	printk("XXX W5K : w5100_hw_reset() \n");
+	printk("W5K : w5100_hw_reset() \n");
 
 	w5100_reset(priv);
 
@@ -705,6 +706,8 @@ static void w5100_hw_start(struct w5100_priv *priv)
 {
 	u8 mode = S0_MR_MACRAW;
 
+	printk("W5K : w5100_hw_start() \n");
+
 	if (!priv->promisc) {
 		if (priv->ops->chip_id == W5500)
 			mode |= W5500_S0_MR_MF;
@@ -719,6 +722,7 @@ static void w5100_hw_start(struct w5100_priv *priv)
 
 static void w5100_hw_close(struct w5100_priv *priv)
 {
+	printk("W5K : w5100_hw_close() \n");
 	w5100_disable_intr(priv);
 	w5100_command(priv, S0_CR_CLOSE);
 }
@@ -732,6 +736,7 @@ static void w5100_hw_close(struct w5100_priv *priv)
 static void w5100_get_drvinfo(struct net_device *ndev,
 			      struct ethtool_drvinfo *info)
 {
+	printk("W5K : w5100_get_drvinfo() \n");
 	strscpy(info->driver, DRV_NAME, sizeof(info->driver));
 	strscpy(info->version, DRV_VERSION, sizeof(info->version));
 	strscpy(info->bus_info, dev_name(ndev->dev.parent),
@@ -740,6 +745,7 @@ static void w5100_get_drvinfo(struct net_device *ndev,
 
 static u32 w5100_get_link(struct net_device *ndev)
 {
+	printk("W5K : w5100_get_link() \n");
 	struct w5100_priv *priv = netdev_priv(ndev);
 
 	if (gpio_is_valid(priv->link_gpio))
@@ -952,6 +958,7 @@ static irqreturn_t w5100_interrupt(int irq, void *ndev_instance)
 
 static irqreturn_t w5100_detect_link(int irq, void *ndev_instance)
 {
+	printk("W5K : w5100_detect_link() \n");
 	struct net_device *ndev = ndev_instance;
 	struct w5100_priv *priv = netdev_priv(ndev);
 
@@ -993,6 +1000,7 @@ static void w5100_set_rx_mode(struct net_device *ndev)
 
 static int w5100_set_macaddr(struct net_device *ndev, void *addr)
 {
+	printk("W5K : w5100_set_macaddr() \n");
 	struct w5100_priv *priv = netdev_priv(ndev);
 	struct sockaddr *sock_addr = addr;
 
@@ -1005,6 +1013,7 @@ static int w5100_set_macaddr(struct net_device *ndev, void *addr)
 
 static int w5100_open(struct net_device *ndev)
 {
+	printk("W5K : w5100_open() \n");
 	struct w5100_priv *priv = netdev_priv(ndev);
 
 	netif_info(priv, ifup, ndev, "enabling\n");
@@ -1019,6 +1028,7 @@ static int w5100_open(struct net_device *ndev)
 
 static int w5100_stop(struct net_device *ndev)
 {
+	printk("W5K : w5100_stop() \n");
 	struct w5100_priv *priv = netdev_priv(ndev);
 
 	netif_info(priv, ifdown, ndev, "shutting down\n");
@@ -1099,7 +1109,7 @@ int w5100_probe(struct device *dev, const struct w5100_ops *ops,
 	int err;
 	size_t alloc_size;
 
-	printk("XXX W5K : w5100_probe (irq:%d, link_gpio:%d) \n", irq, link_gpio);
+	printk("W5K : w5100_probe (irq:%d, link_gpio:%d) \n", irq, link_gpio);
 
 	alloc_size = sizeof(*priv);
 	if (sizeof_ops_priv) {
@@ -1252,7 +1262,7 @@ void w5100_remove(struct device *dev)
 	struct net_device *ndev = dev_get_drvdata(dev);
 	struct w5100_priv *priv = netdev_priv(ndev);
 
-	printk("XXX W5K : w5100_remove() \n");
+	printk("W5K : w5100_remove() \n");
 
 	// sekim 20241015 add thread for Link
     if (priv->monitor_thread)
@@ -1342,13 +1352,13 @@ static int w5100_monitor_thread(void *data)
 		{
 			if ( now_check_link==1)
 			{
-				printk(KERN_INFO "W5100 Link Up\n");
+				printk(KERN_INFO "W5K : W5x00 Link Up\n");
 				netif_info(priv, link, ndev, "link is up\n");
 				netif_carrier_on(ndev);
 			}
 			else
 			{
-				printk(KERN_INFO "W5100 Link Down\n");
+				printk(KERN_INFO "W5K : W5x00 Link Down\n");
 				netif_info(priv, link, ndev, "link is down\n");
 				netif_carrier_off(ndev);
 			}

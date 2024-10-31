@@ -277,7 +277,7 @@ static int w5500_spi_init(struct net_device *ndev)
 	struct w5500_spi_priv *spi_priv = w5500_spi_priv(ndev);
 
 	// sekim 20241013 Start Kernel
-	printk("XXX W5K : w5500_spi_init() \n");
+	printk("W5K : w5500_spi_init() \n");
 
 	mutex_init(&spi_priv->cmd_lock);
 
@@ -432,7 +432,7 @@ static int w5100_spi_probe(struct spi_device *spi)
 	int ret;
 
 	// sekim 20241013 Start Kernel
-	printk("XXX W5K : w5100_spi_probe \n");
+	printk("W5K : w5100_spi_probe \n");
 
 	ret = of_get_mac_address(spi->dev.of_node, tmpmac);
 	if (!ret)
