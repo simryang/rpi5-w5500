@@ -70,7 +70,6 @@ static int dw_axi_dma_set_hw_desc(struct axi_dma_chan *chan,
 
     mem_width = __ffs(data_width | mem_addr | len);
 
-//  sekim XXXX 20241028 Disable buffer alignment Check (???????)
 /*
     if (!IS_ALIGNED(mem_addr, 4)) {
         dev_err(chan->chip->dev, "invalid buffer alignment\n");
@@ -162,10 +161,10 @@ make ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- bcm2712_defconfig
 Now, build the kernel and back up and copy files like the kernel and device tree files to the mounted USB drive.  
 Before proceeding with the steps below, you need to mount the USB drive in WSL.
 ```bash
-sudo make -j$(nproc) ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- Image modules dtbs
+sudo mount /dev/sdd1 mnt/boot; sudo mount /dev/sdd2 mnt/root
 ```
 ```bash
-sudo mount /dev/sdd1 mnt/boot; sudo mount /dev/sdd2 mnt/root
+sudo make -j$(nproc) ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- Image modules dtbs
 ```
 ```bash
 sudo make -j$(nproc) ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- INSTALL_MOD_PATH=mnt/root modules_install
@@ -174,6 +173,7 @@ sudo cp arch/arm64/boot/Image mnt/boot/$KERNEL.img
 sudo cp arch/arm64/boot/dts/broadcom/*.dtb mnt/boot/
 sudo cp arch/arm64/boot/dts/overlays/*.dtb* mnt/boot/overlays/
 sudo cp arch/arm64/boot/dts/overlays/README mnt/boot/overlays/
+sudo umount mnt/boot; sudo umount mnt/root
 ```
 ![image](https://github.com/user-attachments/assets/850a40b5-d04c-49b2-84ab-4f82e5babd3d)
 
@@ -273,8 +273,9 @@ sudo dtoverlay w5500 int_pin=25 speed=500000
 sudo dtoverlay -l
 sudo dtoverlay -r 0
 ```
-
-
+```bash
+sudo raspi-config
+```
 
 
 
