@@ -16,11 +16,12 @@ I tested video streaming on the Raspberry Pi 5, using both its built-in Ethernet
 Refer to the image below for an example of the wiring:  
 ![{778C1876-A01F-4941-9B26-184E76070C50}](https://github.com/user-attachments/assets/dc2f8a86-a709-44a8-aee5-91bed60f94d0)
 
-On the Raspberry Pi, I verify basic camera functionality and then run a Python script([rpi-w5500-steram-test.py](w5x00work/rpi-w5500-steram-test.py])) for the streaming server.  
+## Streaming server
+On the Raspberry Pi, After I verified basic camera functionality and then run a Python script([rpi-w5500-steram-test.py](w5x00work/rpi-w5500-steram-test.py])) for the streaming server.   
 Below is the screenshot of the test in action:
 ![{56604D76-32C1-45DA-9B98-B0D1EA7CCEED}](https://github.com/user-attachments/assets/ba6f885d-4846-4edf-ad2d-c39c98707a99)
 
-I use the vnstat command to monitor network usage in real time while streaming.
+And, I use the vnstat command to monitor network usage in real time while streaming.
 ```bash
 vnstat -l -i eth0
 vnstat -l -i eth1
