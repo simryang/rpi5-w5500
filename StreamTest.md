@@ -27,13 +27,13 @@ vnstat -l -i eth0
 vnstat -l -i eth1
 ```
 
-## Stream - 1024X720, 30FPS
+## Stream Test A - 1024X720, 30FPS
 The first test streams video at 30FPS with a resolution of 1024X720. Both the Raspberry Pi’s built-in Ethernet and the W5500 performed similarly, with network traffic around 6Mbps.
 ![{3337CB4A-49E7-4EDC-8B11-257E5B3DB2A9}](https://github.com/user-attachments/assets/fdfe5b3a-28e7-4bfd-b73a-b49e0d16e8a6)
 ![image](w5x00work/stream-1.gif)
 
-## Stream - 1920x1080, 30FPS
-The second test streams video at 30FPS with a resolution of 1920x1080. Compared to the built-in Ethernet, the W5500 showed a slight delay and generated network traffic of about 12Mbps.
+## Stream Test B - 1920x1080, 30FPS
+The second test streams video at 30FPS with a resolution of 1920x1080. Compared to the built-in Ethernet, the W5500 showed a slight delay with network traffic of about 12Mbps.
 ![{5A6E22AD-74A8-4076-90F2-248BAF91D95B}](https://github.com/user-attachments/assets/555c6b0a-abda-4f75-ac98-037fb42b72f8)
 ![image](w5x00work/stream-2.gif)
 
