@@ -28,14 +28,18 @@ vnstat -l -i eth1
 ```
 
 ## Stream Test A - 1024X720, 30FPS
-The first test streams video at 30FPS with a resolution of 1024X720. Both the Raspberry Pi’s built-in Ethernet and the W5500 performed similarly, with network traffic around 6Mbps.
-![{3337CB4A-49E7-4EDC-8B11-257E5B3DB2A9}](https://github.com/user-attachments/assets/fdfe5b3a-28e7-4bfd-b73a-b49e0d16e8a6)
-![image](w5x00work/stream-1.gif)
+The first test streams video at 30FPS with a resolution of 1024X720. 
+![{3337CB4A-49E7-4EDC-8B11-257E5B3DB2A9}](https://github.com/user-attachments/assets/fdfe5b3a-28e7-4bfd-b73a-b49e0d16e8a6)  
+The left side of the screen is a test of built-in ethernet, and the right side is a test of W5500.  
+Both the Raspberry Pi’s built-in Ethernet and the W5500 performed similarly, with network traffic around 6Mbps.
+![image](w5x00work/stream-1.gif)  
 
 ## Stream Test B - 1920x1080, 30FPS
-The second test streams video at 30FPS with a resolution of 1920x1080. Compared to the built-in Ethernet, the W5500 showed a slight delay with network traffic of about 12Mbps.
-![{5A6E22AD-74A8-4076-90F2-248BAF91D95B}](https://github.com/user-attachments/assets/555c6b0a-abda-4f75-ac98-037fb42b72f8)
-![image](w5x00work/stream-2.gif)
+The second test streams video at 30FPS with a resolution of 1920x1080. 
+![{5A6E22AD-74A8-4076-90F2-248BAF91D95B}](https://github.com/user-attachments/assets/555c6b0a-abda-4f75-ac98-037fb42b72f8)  
+The left side of the screen is a test of built-in ethernet, and the right side is a test of W5500.  
+Compared to the built-in Ethernet, the W5500 showed a slight delay with network traffic of about 12Mbps.
+![image](w5x00work/stream-2.gif)  
 
 ## Conclusion
 If the MCU/MPU has sufficient performance, it appears possible to stream video at HD or FHD resolutions with W5500. We plan to test again with the release of the W6300 chip.
