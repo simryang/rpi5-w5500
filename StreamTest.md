@@ -8,8 +8,8 @@ I tested video streaming on the Raspberry Pi 5, using both its built-in Ethernet
 - **Target Device**: [Raspberry Pi 5](https://www.raspberrypi.com/products/raspberry-pi-5/)
 - **Ethernet Module**: [WIZnet WIZ850io](https://docs.wiznet.io/Product/ioModule/wiz850io)
 - **Camera**: [R-Pi Camera](https://www.raspberrypi.com/products/)
-- Built-in Ethernet : (eth0) 192.168.10.17  
-- W5500 Ethernet : (eth1) 192.168.11.17  
+- **Built-in Ethernet** : (eth0) 192.168.10.17  
+- **W5500 Ethernet** : (eth1) 192.168.11.17  
   
 ![image](https://github.com/user-attachments/assets/e2275bee-4a47-4de8-b33c-f429b14df375)
 
@@ -40,7 +40,7 @@ The second test streams video at 30FPS with a resolution of 1920 x 1080.
 ![image](https://github.com/user-attachments/assets/4d8e8f9a-3955-4a6b-a729-98b64478687d)
 
 The left side of the screen is a test of built-in ethernet, and the right side is a test of W5500.  
-Compared to the built-in Ethernet, the W5500 showed a slight delay with network traffic of about 12Mbps.
+Compared to the built-in Ethernet, the W5500 showed a slight delay with network traffic of about 12 ~ 20Mbps.
 ![image](w5x00work/stream-2.gif)  
 
 ## Conclusion
