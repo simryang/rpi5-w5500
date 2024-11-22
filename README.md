@@ -164,6 +164,9 @@ Before proceeding with the steps below, you need to mount the USB drive in WSL.
 sudo mount /dev/sdd1 mnt/boot; sudo mount /dev/sdd2 mnt/root
 ```
 ```bash
+sudo make menuconfig
+```
+```bash
 sudo make -j$(nproc) ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- Image modules dtbs
 ```
 ```bash
