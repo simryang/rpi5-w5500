@@ -247,10 +247,6 @@ sudo modprobe w5100; sudo modprobe w5100-spi
 
 ## ※ Appendix D: Additional useful commands for testing
 
-USB 메모리를 WSL에 Attach 한다.
-현재 커널 버전의 W5x00 드라이버를 확인한다.
-Overlay를 이용해서 
-
 ```cmd
 usbipd list
 usbipd attach --wsl --busid 11-4
