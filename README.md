@@ -130,6 +130,29 @@ static int w5100_writebulk(struct w5100_priv *priv, u32 addr, const u8 *buf, int
 ..................................
 ```
 
+This part was referenced from enc28j60's source. ([enc28j60.c](/drivers/net/ethernet/microchip/enc28j60.c))
+```c
+struct enc28j60_net {
+	struct net_device *netdev;
+	struct spi_device *spi;
+	struct mutex lock;
+	struct sk_buff *tx_skb;
+	struct work_struct tx_work;
+	struct work_struct setrx_work;
+	struct work_struct restart_work;
+	u8 bank;		/* current register bank selected */
+	u16 next_pk_ptr;	/* next packet pointer within FIFO */
+	u16 max_pk_counter;	/* statistics: max packet counter */
+	u16 tx_retry_count;
+	bool hw_enable;
+	bool full_duplex;
+	int rxfilter;
+	u32 msg_enable;
+	u8 spi_transfer_buf[SPI_TRANSFER_BUF_LEN];
+};
+
+```
+
 A dedicated thread was implemented to monitor the Ethernet link status of the W5500 in real-time. This thread checks the link state periodically and logs status changes, such as when the link goes up or down.
 ```c
 // sekim 20241015 add thread for Link
