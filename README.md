@@ -53,30 +53,81 @@ An alignment error in the receive buffer was encountered, which required the fol
 ![{E619D12E-7BDE-45CD-820C-AAEC33EBCD86}](https://github.com/user-attachments/assets/84d8f324-7106-489b-9454-61c93993616c)
 
 ```c
-static int dw_axi_dma_set_hw_desc(struct axi_dma_chan *chan,
-				  struct axi_dma_hw_desc *hw_desc,
-				  dma_addr_t mem_addr, size_t len)
+..................................
+struct w5100_priv {
+	const struct w5100_ops *ops;
+
+	/* Socket 0 register offset address */
+	u32 s0_regs;
+	/* Socket 0 TX buffer offset address and size */
+	u32 s0_tx_buf;
+	u16 s0_tx_buf_size;
+	/* Socket 0 RX buffer offset address and size */
+	u32 s0_rx_buf;
+	u16 s0_rx_buf_size;
+
+	int irq;
+	int link_irq;
+	int link_gpio;
+
+	struct napi_struct napi;
+	struct net_device *ndev;
+	bool promisc;
+	u32 msg_enable;
+
+	struct workqueue_struct *xfer_wq;
+	struct work_struct rx_work;
+	struct sk_buff *tx_skb;
+	struct work_struct tx_work;
+	struct work_struct setrx_work;
+	struct work_struct restart_work;
+
+	// sekim 20241015 add thread for Link
+	struct task_struct *monitor_thread; 
+	
+	// sekim XXXXXX 20241104 DMA Buffer Alignment Issue
+	u8 spi_transfer_buf[SPI_TRANSFER_BUF_LEN];
+};
+..................................
+
+static int w5100_readbulk(struct w5100_priv *priv, u32 addr, u8 *buf, int len)
 {
-    unsigned int data_width = BIT(chan->chip->dw->hdata->m_data_width);
-    unsigned int reg_width;
-    unsigned int mem_width;
-    dma_addr_t device_addr;
-    size_t axi_block_ts;
-    size_t block_ts;
-    u32 ctllo, ctlhi;
-    u32 burst_len = 0, mem_burst_msize, reg_burst_msize;
+	///////////////////////////////////////////////////////////////////////////
+	// sekim XXXXXX 20241104 DMA Buffer Alignment Issue
+	//return priv->ops->readbulk(priv->ndev, addr, buf, len);
+	{
+		int ret;
+		if ( len>MAX_FRAMELEN )
+		{
+			printk("W5K : w5100_readbulk  RRRRR         : len(%4d) align(%d) addr(0x%08x)  ====> Error\n", len, (int)((uintptr_t)buf % 4), (unsigned int)(uintptr_t)buf);
+			return -ENOMEM;
+		}
+		printk("W5K : w5100_readbulk  RRRRR         : len(%4d) align(%d) addr(0x%08x ===> 0x%08x) \n", len, (int)((uintptr_t)buf % 4), (unsigned int)(uintptr_t)buf, (unsigned int)(uintptr_t)priv->spi_transfer_buf);
+		ret = priv->ops->readbulk(priv->ndev, addr, priv->spi_transfer_buf, len);
+		memcpy(buf, priv->spi_transfer_buf, len);
+		return ret;
+	}
+	///////////////////////////////////////////////////////////////////////////
+}
 
-    axi_block_ts = chan->chip->dw->hdata->block_size[chan->id];
-
-    mem_width = __ffs(data_width | mem_addr | len);
-
-/*
-    if (!IS_ALIGNED(mem_addr, 4)) {
-        dev_err(chan->chip->dev, "invalid buffer alignment\n");
-        return -EINVAL;
-    }
-*/
-    ..................................
+static int w5100_writebulk(struct w5100_priv *priv, u32 addr, const u8 *buf, int len)
+{
+	///////////////////////////////////////////////////////////////////////////
+	// sekim XXXXXX 20241104 DMA Buffer Alignment Issue
+	//return priv->ops->writebulk(priv->ndev, addr, buf, len);
+	{
+		if ( len>MAX_FRAMELEN )
+		{
+			printk("W5K : w5100_writebulk TTTTT         : len(%4d) align(%d) addr(0x%08x)  ====> Error\n", len, (int)((uintptr_t)buf % 4), (unsigned int)(uintptr_t)buf);
+			return -ENOMEM;
+		}
+		printk("W5K : w5100_writebulk TTTTT         : len(%4d) align(%d) addr(0x%08x ===> 0x%08x) \n", len, (int)((uintptr_t)buf % 4), (unsigned int)(uintptr_t)buf, (unsigned int)(uintptr_t)priv->spi_transfer_buf);
+		memcpy(priv->spi_transfer_buf, buf, len);
+		return priv->ops->writebulk(priv->ndev, addr, priv->spi_transfer_buf, len);
+	}
+	///////////////////////////////////////////////////////////////////////////
+}
+..................................
 ```
 
 A dedicated thread was implemented to monitor the Ethernet link status of the W5500 in real-time. This thread checks the link state periodically and logs status changes, such as when the link goes up or down.
