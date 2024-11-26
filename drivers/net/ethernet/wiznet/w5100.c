@@ -531,28 +531,6 @@ static int w5100_readbulk(struct w5100_priv *priv, u32 addr, u8 *buf, int len)
 		ret = priv->ops->readbulk(priv->ndev, addr, priv->spi_transfer_buf, len);
 		memcpy(buf, priv->spi_transfer_buf, len);
 		return ret;
-		/*
-		int ret;
-		int dev_value = (int)((uintptr_t)buf % 4);
-		if ( dev_value != 0 )
-		{
-			u8 *aligned_buf;
-			aligned_buf = kmalloc(len, GFP_KERNEL);
-			if (!aligned_buf)
-				return -ENOMEM;
-
-			printk("W5K : w5100_readbulk  RRRRR         : len(%4d) align(%d) addr(0x%08x ===> 0x%08x) \n", len, (int)((uintptr_t)buf % 4), (unsigned int)(uintptr_t)buf, (unsigned int)(uintptr_t)aligned_buf);
-			ret = priv->ops->readbulk(priv->ndev, addr, aligned_buf, len);
-
-			memcpy(buf, aligned_buf, len);
-			kfree(aligned_buf);
-		} else {
-			printk("W5K : w5100_readbulk  RRRRR         : len(%4d) align(%d) addr(0x%08x) \n", len, (int)((uintptr_t)buf % 4), (unsigned int)(uintptr_t)buf);
-			ret = priv->ops->readbulk(priv->ndev, addr, buf, len);
-		}
-
-		return ret;	
-		*/
 	}
 	///////////////////////////////////////////////////////////////////////////
 }
@@ -572,28 +550,6 @@ static int w5100_writebulk(struct w5100_priv *priv, u32 addr, const u8 *buf, int
 		printk("W5K : w5100_writebulk TTTTT         : len(%4d) align(%d) addr(0x%08x ===> 0x%08x) \n", len, (int)((uintptr_t)buf % 4), (unsigned int)(uintptr_t)buf, (unsigned int)(uintptr_t)priv->spi_transfer_buf);
 		memcpy(priv->spi_transfer_buf, buf, len);
 		return priv->ops->writebulk(priv->ndev, addr, priv->spi_transfer_buf, len);
-
-		/*
-		int ret;
-		int dev_value = (int)((uintptr_t)buf % 4);		
-		if ( dev_value != 0 )
-		{
-			u8 *aligned_buf;
-			aligned_buf = kmalloc(len, GFP_KERNEL);
-			if (!aligned_buf)
-				return -ENOMEM;
-
-			memcpy(aligned_buf, buf, len);
-			printk("W5K : w5100_writebulk TTTTT         : len(%4d) align(%d) addr(0x%08x ===> 0x%08x) \n", len, (int)((uintptr_t)buf % 4), (unsigned int)(uintptr_t)buf, (unsigned int)(uintptr_t)aligned_buf);
-			ret = priv->ops->writebulk(priv->ndev, addr, aligned_buf, len);
-			kfree(aligned_buf);
-		} else {
-			printk("W5K : w5100_writebulk TTTTT         : len(%4d) align(%d) addr(0x%08x) \n", len, (int)((uintptr_t)buf % 4), (unsigned int)(uintptr_t)buf);
-			ret = priv->ops->writebulk(priv->ndev, addr, buf, len);
-		}
-
-		return ret;	
-		*/
 	}
 	///////////////////////////////////////////////////////////////////////////
 }
