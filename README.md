@@ -15,16 +15,18 @@ This guide walks you through building and customizing the Linux kernel for the R
 
 Connect the Raspberry Pi 5 to the WIZ850io module as follows:
 
-| **Raspberry Pi 5**  | **WIZ850io** |
-|---------------------|--------------|
-| 6 (GND)             | GND          |
-| 1 (3.3V)            | 3.3V         |
-| 23 (SPI0_SCLK)      | SCLK         |
-| 19 (SPI0_MOSI)      | MOSI         |
-| 21 (SPI0_MISO)      | MISO         |
-| 18 (BCM24)          | RSTn         |
-| 22 (BCM25)          | INTn         |
-| 24 (SPI0_CE0)       | SCn          |
+| **Raspberry Pi 5**  | **WIZ850io**     |
+|---------------------|------------------|
+| 6 (GND)             | GND              |
+| 1 (3.3V)            | 3.3V             |
+| 23 (SPI0_SCLK)      | SCLK             |
+| 19 (SPI0_MOSI)      | MOSI             |
+| 21 (SPI0_MISO)      | MISO             |
+| 18 (BCM24)          | RSTn             |
+| 22 (BCM25)          | INTn             |
+| 24 (SPI0_CE0)       | SCn              |  
+
+![image](https://github.com/user-attachments/assets/01287496-79fd-4b97-9cc6-c7d3bdbb7187)  
 
 Refer to the image below for an example of the wiring:
 ![Hardware Connection Example](https://github.com/user-attachments/assets/ced33d4e-e3f8-481a-b611-2122c941c120)
@@ -45,26 +47,11 @@ Params: int_pin    GPIO used for INT (default 25)
 
 ## Kernel and Driver Source Modifications
 
-To monitor the operation of key functions within the Linux kernel and the W5500 driver, debug messages were added, and some sections were modified. 
+To monitor the operation of key functions within the Linux kernel and the W5500 driver, debug messages were added, and some sections were modified.  
 
-An alignment error in the receive buffer was encountered, which required the following modification. The root cause of this issue is still under investigation:
-```
-[    9.658728] NET: Registered PF_ALG protocol family
-[   11.110600] macb 1f00100000.ethernet eth0: PHY [1f00100000.ethernet-ffffffff:01] driver [Broadcom BCM54213PE] (irq=POLL)
-[   11.110614] macb 1f00100000.ethernet eth0: configuring for phy/rgmii-id link mode
-[   11.113805] pps pps0: new PPS source ptp0
-[   11.113973] macb 1f00100000.ethernet: gem-ptp-timer ptp clock registered.
-[   11.148425] brcmfmac: brcmf_cfg80211_set_power_mgmt: power save enabled
-[   11.175709] dw_axi_dmac_platform 1f00188000.dma: invalid buffer alignment
-[   11.175722] w5100 spi0.0: SPI transfer failed: -12
-[   11.175731] spi_master spi0: failed to transfer one message from queue
-[   11.175735] spi_master spi0: noqueue transfer failed
-[   11.188992] dw_axi_dmac_platform 1f00188000.dma: invalid buffer alignment
-[   11.189003] w5100 spi0.0: SPI transfer failed: -12
-[   11.189013] spi_master spi0: failed to transfer one message from queue
-[   11.189016] spi_master spi0: noqueue transfer failed
-[   11.708981] dw_axi_dmac_platform 1f00188000.dma: invalid buffer alignment
-```
+An alignment error in the receive buffer was encountered, which required the following modification. The root cause of this issue is still under investigation:  
+![{E619D12E-7BDE-45CD-820C-AAEC33EBCD86}](https://github.com/user-attachments/assets/84d8f324-7106-489b-9454-61c93993616c)
+
 ```c
 static int dw_axi_dma_set_hw_desc(struct axi_dma_chan *chan,
 				  struct axi_dma_hw_desc *hw_desc,
@@ -83,7 +70,6 @@ static int dw_axi_dma_set_hw_desc(struct axi_dma_chan *chan,
 
     mem_width = __ffs(data_width | mem_addr | len);
 
-//  sekim XXXX 20241028 Disable buffer alignment Check (???????)
 /*
     if (!IS_ALIGNED(mem_addr, 4)) {
         dev_err(chan->chip->dev, "invalid buffer alignment\n");
@@ -175,13 +161,22 @@ make ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- bcm2712_defconfig
 Now, build the kernel and back up and copy files like the kernel and device tree files to the mounted USB drive.  
 Before proceeding with the steps below, you need to mount the USB drive in WSL.
 ```bash
+sudo mount /dev/sdd1 mnt/boot; sudo mount /dev/sdd2 mnt/root
+```
+```bash
+sudo make menuconfig
+```
+```bash
 sudo make -j$(nproc) ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- Image modules dtbs
+```
+```bash
 sudo make -j$(nproc) ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- INSTALL_MOD_PATH=mnt/root modules_install
 sudo cp mnt/boot/$KERNEL.img mnt/boot/$KERNEL-backup.img
 sudo cp arch/arm64/boot/Image mnt/boot/$KERNEL.img
 sudo cp arch/arm64/boot/dts/broadcom/*.dtb mnt/boot/
 sudo cp arch/arm64/boot/dts/overlays/*.dtb* mnt/boot/overlays/
 sudo cp arch/arm64/boot/dts/overlays/README mnt/boot/overlays/
+sudo umount mnt/boot; sudo umount mnt/root
 ```
 ![image](https://github.com/user-attachments/assets/850a40b5-d04c-49b2-84ab-4f82e5babd3d)
 
@@ -223,18 +218,18 @@ sudo nmcli connection modify be76cf51-6064-3d37-b026-9250d47ea478 ipv4.addresses
 ```
 ![image](https://github.com/user-attachments/assets/42bdf6af-9a90-43c5-b14c-17498155f089)
 
-## ※ Appendix 1: iPerf Test
+## ※ Appendix A: iPerf Test
 Below is the result of the test conducted with iPerf.
 ![image](https://github.com/user-attachments/assets/48d69203-5156-4464-9295-6d4461d2d17d)
 
-## ※ Appendix 2: SPI Low-Level Test  
+## ※ Appendix B: SPI Low-Level Test  
 Below is the content of a low-level SPI communication test with the W5500.  
 It includes an example of a command to read the MAC Address of the W5500 and an SPI signal screen.
 C source file([w5x00_spi_test.c](w5x00work/w5x00_spi_test.c])) is compiled on R-Pi 5.  
 ![image](https://github.com/user-attachments/assets/d39a048a-2171-4371-8de3-7917b463bc9b)
 ![image](https://github.com/user-attachments/assets/91ad4045-3691-4fbf-93f7-0e6150c1cd59)
 
-## ※ Appendix 3: Reload SPI module
+## ※ Appendix C: Reload SPI module
 Using the following process, you can reset the W5100 driver and SPI module, and restart W5500-related operations.
 
 Check the current W5500 driver status in the kernel.  
@@ -249,3 +244,42 @@ Reload the SPI module to add it back to the kernel.
 ```bash
 sudo modprobe w5100; sudo modprobe w5100-spi
 ```
+
+## ※ Appendix D: Additional useful commands for testing
+
+```cmd
+usbipd list
+usbipd attach --wsl --busid 11-4
+usbipd detach --busid 11-4
+```
+
+```bash
+ls -al /lib/modules/$(uname -r)/kernel/drivers/net/ethernet/wiznet/
+```
+
+```bash
+lsmod | grep w5
+sudo modprobe -r w5100-spi; sudo modprobe -r w5100
+sudo modprobe w5100; sudo modprobe w5100-spi
+lsmod | grep w5
+```
+
+```bash
+ls /boot/overlays/ | grep w5
+sudo dtoverlay -h w5500
+sudo dtoverlay w5500
+sudo dtoverlay w5500 int_pin=25 speed=500000
+sudo dtoverlay -l
+sudo dtoverlay -r 0
+```
+```bash
+sudo raspi-config
+```
+
+
+
+
+
+
+
+
