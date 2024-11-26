@@ -52,6 +52,9 @@ To monitor the operation of key functions within the Linux kernel and the W5500 
 An alignment error in the receive buffer was encountered, which required the following modification. The root cause of this issue is still under investigation:  
 ![{E619D12E-7BDE-45CD-820C-AAEC33EBCD86}](https://github.com/user-attachments/assets/84d8f324-7106-489b-9454-61c93993616c)
 
+
+Regarding the SPI DMA Buffer, the modified parts are as follows.([w5100.c](drivers/net/ethernet/wiznet/w5100.c))
+ 
 ```c
 ..................................
 struct w5100_priv {
