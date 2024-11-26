@@ -127,7 +127,7 @@ static int spi_write_buf(struct enc28j60_net *priv, int len, const u8 *data)
 		ret = -EINVAL;
 	else {
 		priv->spi_transfer_buf[0] = ENC28J60_WRITE_BUF_MEM;
-		memcpy(&priv->spi_transfer_buf[1], data, len);
+		memcpy(&priv->spi_transfer_buf[1], data, len);  // sekim XXXXX ENC28J60 SPI buffer Copy
 		ret = spi_write(priv->spi, priv->spi_transfer_buf, len + 1);
 		if (ret && netif_msg_drv(priv))
 			dev_printk(KERN_DEBUG, dev, "%s() failed: ret = %d\n",
