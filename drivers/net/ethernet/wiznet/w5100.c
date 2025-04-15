@@ -26,26 +26,9 @@
 #include <linux/gpio.h>
 
 ////////////////////////////////////////////////////////////////////////
-//#define USE_LINK_THREAD
-#define USE_ALGIN_BY_COPY
-#define USE_JOSEPH_LINK_TIMER
-//#define USE_JOSEPH_ALGIN
-////////////////////////////////////////////////////////////////////////
-
-////////////////////////////////////////////////////////////////////////
-// sekim 20241015 add thread for Link
-#ifdef USE_LINK_THREAD
-#include <linux/kthread.h>  // 커널 스레드 생성 관련
-#include <linux/delay.h>    // msleep() 함수 사용
-static int w5100_monitor_thread(void *data);
-#endif
-////////////////////////////////////////////////////////////////////////
-// joseph timer for link checking
-#ifdef USE_JOSEPH_LINK_TIMER
-#include <linux/timer.h>
-#include <linux/jiffies.h>
-static void w5100_link_timer_callback(struct timer_list *t);
-#endif
+// joseph delayed work queue for link checking
+#include <linux/workqueue.h>
+static void w5100_link_check_work(struct work_struct *work);
 ////////////////////////////////////////////////////////////////////////
 
 #include "w5100.h"
@@ -200,20 +183,10 @@ struct w5100_priv {
 	struct work_struct setrx_work;
 	struct work_struct restart_work;
 
-#ifdef USE_LINK_THREAD
-	// sekim 20241015 add thread for Link
-	struct task_struct *monitor_thread; 
-#endif
-	
-#ifdef USE_ALGIN_BY_COPY
 	// sekim XXXXXX 20241104 DMA Buffer Alignment Issue
 	u8 spi_transfer_buf[SPI_TRANSFER_BUF_LEN];
-#endif
 
-#ifdef USE_JOSEPH_LINK_TIMER
-    // joseph timer for link checking
-    struct timer_list link_timer;
-#endif
+    struct delayed_work link_check_work;
 };
 
 /************************************************************************
@@ -543,10 +516,10 @@ static int w5100_write16(struct w5100_priv *priv, u32 addr, u16 data)
 
 static int w5100_readbulk(struct w5100_priv *priv, u32 addr, u8 *buf, int len)
 {
-#ifdef USE_ALGIN_BY_COPY
 	///////////////////////////////////////////////////////////////////////////
 	// sekim XXXXXX 20241104 DMA Buffer Alignment Issue
-	{
+    // disable because it can be aligned with allocation
+	if (0) {
 		int ret;
 		if ( len>MAX_FRAMELEN )
 		{
@@ -559,33 +532,35 @@ static int w5100_readbulk(struct w5100_priv *priv, u32 addr, u8 *buf, int len)
 		return ret;
 	}
 	///////////////////////////////////////////////////////////////////////////
-#else
-    printk("W5K : w5100_readbulk  RRRRR         : len(%4d) align(%d) addr(0x%08x)  ====> Error\n", len, (int)((uintptr_t)buf % 4), (unsigned int)(uintptr_t)buf);
 	return priv->ops->readbulk(priv->ndev, addr, buf, len);
-#endif
 }
 
 
 static int w5100_writebulk(struct w5100_priv *priv, u32 addr, const u8 *buf, int len)
 {
-#ifdef USE_ALGIN_BY_COPY
+    // for debug
+    uintptr_t buf_addr = (uintptr_t)buf;
 	///////////////////////////////////////////////////////////////////////////
 	// sekim XXXXXX 20241104 DMA Buffer Alignment Issue
-	{
+    // Due to strict 4-byte alignment requirements of the RP1 DMA controller,
+    // memory must be copied if the buffer is not properly aligned.
+	//if (!IS_ALIGNED((uintptr_t)addr, 4)) {
+	if (!IS_ALIGNED(buf_addr, 4)) {
+        printk("W5K : w5100_writebulk align FAIL: len=%4d align=%d addr=0x%08x, addr2=0x%08x\n", len, (int)(buf_addr % 4), (u32)buf_addr, addr);
 		if ( len>MAX_FRAMELEN )
 		{
 			printk("W5K : w5100_writebulk TTTTT         : len(%4d) align(%d) addr(0x%08x)  ====> Error\n", len, (int)((uintptr_t)buf % 4), (unsigned int)(uintptr_t)buf);
 			return -ENOMEM;
 		}
-		printk("W5K : w5100_writebulk TTTTT         : len(%4d) align(%d) addr(0x%08x ===> 0x%08x) \n", len, (int)((uintptr_t)buf % 4), (unsigned int)(uintptr_t)buf, (unsigned int)(uintptr_t)priv->spi_transfer_buf);
+		//printk("W5K : w5100_writebulk TTTTT         : len(%4d) align(%d) addr(0x%08x ===> 0x%08x) \n", len, (int)((uintptr_t)buf % 4), (unsigned int)(uintptr_t)buf, (unsigned int)(uintptr_t)priv->spi_transfer_buf);
 		memcpy(priv->spi_transfer_buf, buf, len);
 		return priv->ops->writebulk(priv->ndev, addr, priv->spi_transfer_buf, len);
 	}
 	///////////////////////////////////////////////////////////////////////////
-#else
-    printk("W5K : w5100_writebulk TTTTT         : len(%4d) align(%d) addr(0x%08x)  ====> Error\n", len, (int)((uintptr_t)buf % 4), (unsigned int)(uintptr_t)buf);
-	return priv->ops->writebulk(priv->ndev, addr, buf, len);
-#endif
+    else {
+        printk("W5K : w5100_writebulk align OK: len=%4d align=%d addr=0x%08x\n", len, (int)(buf_addr % 4), (u32)buf_addr);
+        return priv->ops->writebulk(priv->ndev, addr, buf, len);
+    }
 }
 #endif
 
@@ -629,6 +604,9 @@ static int w5100_writebuf(struct w5100_priv *priv, u16 offset, const u8 *buf,
 		len = mem_size - offset;
 	}
 
+    if (!IS_ALIGNED((uintptr_t)buf, 4)) {
+        printk("W5K : writebuf() align FAIL: addr=0x%08x len=%d\n", (u32)(uintptr_t)buf, len);
+    }
 	ret = w5100_writebulk(priv, addr, buf, len);
 	if (ret || !remain)
 		return ret;
@@ -887,9 +865,29 @@ static void w5100_tx_skb(struct net_device *ndev, struct sk_buff *skb)
 	struct w5100_priv *priv = netdev_priv(ndev);
 	u16 offset;
 
+    //joseph for debug unaligned address caller
+    /*
+    if (!IS_ALIGNED((uintptr_t)skb->data, 4)) {
+    printk(KERN_ERR "W5K : b4 TX skb->data not aligned: len=%d addr=0x%08x\n",
+           skb->len, (unsigned int)(uintptr_t)skb->data);
+    } else {
+        printk(KERN_INFO "W5K : b4 TX aligned skb->data: len=%d addr=0x%08x\n",
+               skb->len, (unsigned int)(uintptr_t)skb->data);
+    }
+    */
 	offset = w5100_read16(priv, W5100_S0_TX_WR(priv));
 	w5100_writebuf(priv, offset, skb->data, skb->len);
 	w5100_write16(priv, W5100_S0_TX_WR(priv), offset + skb->len);
+    //joseph for debug unaligned address caller
+
+    if (!IS_ALIGNED((uintptr_t)skb->data, 4)) {
+        printk(KERN_ERR "W5K : TX a4 skb->data not aligned: len=%d addr=0x%08x\n",
+           skb->len, (unsigned int)(uintptr_t)skb->data);
+    } else {
+        printk(KERN_INFO "W5K : TX a4 aligned skb->data: len=%d addr=0x%08x\n",
+               skb->len, (unsigned int)(uintptr_t)skb->data);
+    }
+
 	ndev->stats.tx_bytes += skb->len;
 	ndev->stats.tx_packets++;
 	dev_kfree_skb(skb);
@@ -943,7 +941,20 @@ static struct sk_buff *w5100_rx_skb(struct net_device *ndev)
 	w5100_readbuf(priv, offset, header, 2);
 	rx_len = get_unaligned_be16(header) - 2;
 
-	skb = netdev_alloc_skb_ip_align(ndev, rx_len);
+    /* joseph ensure 4B align: check skb->data, apply reserve */
+	skb = netdev_alloc_skb(ndev, rx_len + 4);
+    skb_reserve(skb, PTR_ALIGN(skb->data, 4) - skb->data);
+    //joseph for debug unaligned address caller
+    /*
+    if (!IS_ALIGNED((uintptr_t)skb->data, 4)) {
+        printk(KERN_ERR "W5K : RX a4 skb->data not aligned: len=%d addr=0x%08x\n",
+               skb->len, (unsigned int)(uintptr_t)skb->data);
+    } else {
+        printk(KERN_INFO "W5K : RX a4 aligned skb->data: len=%d addr=0x%08x\n",
+               skb->len, (unsigned int)(uintptr_t)skb->data);
+    }
+    */
+	//skb = netdev_alloc_skb_ip_align(ndev, rx_len);
 	if (unlikely(!skb)) {
 		w5100_write16(priv, W5100_S0_RX_RD(priv), offset + rx_buf_len);
 		w5100_command(priv, S0_CR_RECV);
@@ -951,13 +962,14 @@ static struct sk_buff *w5100_rx_skb(struct net_device *ndev)
 		return NULL;
 	}
 
-#ifdef USE_JOSEPH_ALGIN
-    /* joseph 4바이트 정렬 보장을 위해 skb->data의 주소를 확인 후 reserve 적용 */
+    /* joseph ensure 4B align: check skb->data, apply reserve */
     if (((unsigned long)skb->data) & (4 - 1) && 0) {
         int adjust = ALIGN((unsigned long)skb->data, 4) - (unsigned long)skb->data;
         skb_reserve(skb, adjust);
+        if (!IS_ALIGNED((uintptr_t)skb->data, 4)) {
+            printk("W5K : w5100_rx_skb align  : len(%4d) align(%d) addr(0x%08x) ===>               alignment((%d) Error \n", (int)rx_buf_len, (int)((uintptr_t)skb->data % 4), (unsigned int)(uintptr_t)skb->data, (int)((uintptr_t)skb->data % 4));
+        }
     }
-#endif
 
 	skb_put(skb, rx_len);
 	w5100_readbuf(priv, offset + 2, skb->data, rx_len);
@@ -1185,6 +1197,7 @@ int w5100_probe(struct device *dev, const struct w5100_ops *ops,
 	int err;
 	size_t alloc_size;
 
+    //joseph link_gpio is not supported: value will be -22
 	printk("W5K : w5100_probe (irq:%d, link_gpio:%d) \n", irq, link_gpio);
 
 	alloc_size = sizeof(*priv);
@@ -1303,38 +1316,17 @@ int w5100_probe(struct device *dev, const struct w5100_ops *ops,
 	}
 
 	//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-	// sekim 20241015 add thread for Link
-#ifdef USE_LINK_THREAD
-	{		
-		priv->monitor_thread = kthread_run(w5100_monitor_thread, priv, "w5100_monitor");
-		if (IS_ERR(priv->monitor_thread)) {
-			err = PTR_ERR(priv->monitor_thread);
-			printk(KERN_ERR "Failed to create W5100 monitor thread\n");
-			goto err_thread;
-		}
-	}
-#endif
-	//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-    // joseph timer for link checking
-#ifdef USE_JOSEPH_LINK_TIMER
+    // joseph delayed work queue for link checking
     {
-        // initialize timer
-        int link_jiffy = 1000;
-        printk("W5K : w5100_probe() initialize timer for link checking with %d jiffies\n", link_jiffy);
-        timer_setup(&priv->link_timer, w5100_link_timer_callback, 0);
-        mod_timer(&priv->link_timer, jiffies + msecs_to_jiffies(link_jiffy));
+        int link_interval_ms = 5000;
+
+        INIT_DELAYED_WORK(&priv->link_check_work, w5100_link_check_work);
+        queue_delayed_work(system_wq, &priv->link_check_work, msecs_to_jiffies(link_interval_ms));
+        printk(KERN_INFO "W5K : scheduled delayed work for link check every %d ms\n", link_interval_ms);
     }
-#endif
 	//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
 	return 0;
-
-#ifdef USE_LINK_THREAD
-// sekim 20241015 add thread for Link
-err_thread:
-    if (priv->monitor_thread)
-        kthread_stop(priv->monitor_thread);
-#endif
 
 err_gpio:
 	free_irq(priv->irq, ndev);
@@ -1355,17 +1347,8 @@ void w5100_remove(struct device *dev)
 
 	printk("W5K : w5100_remove() \n");
 
-	// sekim 20241015 add thread for Link
-#ifdef USE_LINK_THREAD
-    if (priv->monitor_thread)
-	{
-        kthread_stop(priv->monitor_thread); 
-	}
-#endif
-    // joseph timer for link checking
-#ifdef USE_JOSEPH_LINK_TIMER
-    del_timer_sync(&priv->link_timer);
-#endif
+    // joseph delayed work queue for link checking
+    cancel_delayed_work_sync(&priv->link_check_work);
 
 	w5100_hw_reset(priv);
 	free_irq(priv->irq, ndev);
@@ -1427,82 +1410,28 @@ static struct platform_driver w5100_mmio_driver = {
 };
 module_platform_driver(w5100_mmio_driver);
 
-#ifdef USE_LINK_THREAD
-/////////////////////////////////////////////////////////////////////////////
-// sekim 20241015 add thread for Link
-static int w5100_monitor_thread(void *data)
+// joseph delayed work queue for link checking
+static void w5100_link_check_work(struct work_struct *work)
 {
-    struct w5100_priv *priv = (struct w5100_priv *)data;
-	struct net_device *ndev = priv->ndev;
-
-	u8 old_check_link = 2;
-	u8 now_check_link = 2;
-
-    while (!kthread_should_stop()) 
-	{  
-		#define W5100_PHY_STATUS 0x002E
-		u8 status = w5100_read(priv, W5100_PHY_STATUS);
-
-		now_check_link = status & 0x01;
-
-		if ( old_check_link!=now_check_link )
-		{
-			if ( now_check_link==1)
-			{
-				printk(KERN_INFO "W5K : W5x00 Link Up\n");
-				netif_info(priv, link, ndev, "link is up\n");
-				netif_carrier_on(ndev);
-			}
-			else
-			{
-				printk(KERN_INFO "W5K : W5x00 Link Down\n");
-				netif_info(priv, link, ndev, "link is down\n");
-				netif_carrier_off(ndev);
-			}
-		}
-
-		old_check_link = now_check_link;
-		msleep(1000);
-    }
-
-    return 0;
-}
-#endif
-
-#ifdef USE_JOSEPH_LINK_TIMER
-//////////////////////////////////////////////////////////////////////////////
-// joseph timer for link checking
-static void w5100_check_link(struct net_device *ndev)
-{
-    struct w5100_priv *priv = netdev_priv(ndev);
+    struct w5100_priv *priv = container_of(to_delayed_work(work), struct w5100_priv, link_check_work);
+    struct net_device *ndev = priv->ndev;
     u8 phy_status;
-
     #define W5100_PHY_STATUS 0x002E
+
     phy_status = w5100_read(priv, W5100_PHY_STATUS);
 
-    if (phy_status & 0x01) {  // 참이면 연결
+    if (phy_status & 0x01) {
         if (!netif_carrier_ok(ndev)) {
             netif_carrier_on(ndev);
-            printk(KERN_INFO "W5K : W5x00 Link Up\n");
-            netdev_info(ndev, "Link is UP\n");
+            netdev_info(ndev, "W5K : Link is UP\n");
         }
     } else {
         if (netif_carrier_ok(ndev)) {
             netif_carrier_off(ndev);
-            printk(KERN_INFO "W5K : W5x00 Link Down\n");
-            netdev_info(ndev, "Link is DOWN\n");
+            netdev_info(ndev, "W5K : Link is DOWN\n");
         }
     }
 
-    // 5000 jiffies (약 20~25초) 마다 재실행
-    mod_timer(&priv->link_timer, jiffies + msecs_to_jiffies(5000));
+    // schedule next in 5 sec
+    queue_delayed_work(system_wq, &priv->link_check_work, msecs_to_jiffies(5000));
 }
-
-static void w5100_link_timer_callback(struct timer_list *t)
-{
-    struct w5100_priv *priv = from_timer(priv, t, link_timer);
-    w5100_check_link(priv->ndev);
-}
-//////////////////////////////////////////////////////////////////////////////
-#endif
-
