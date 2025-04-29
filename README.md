@@ -352,3 +352,11 @@ sudo dtoverlay -r 0
 ```bash
 sudo raspi-config
 ```
+
+
+
+
+
+
+
+

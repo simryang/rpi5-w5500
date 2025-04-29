@@ -36,7 +36,6 @@ static void w5100_link_check_work(struct work_struct *work);
 #define DRV_NAME	"w5100"
 #define DRV_VERSION	"2012-04-04"
 
-
 MODULE_DESCRIPTION("WIZnet W5100 Ethernet driver v"DRV_VERSION);
 MODULE_AUTHOR("Mike Sinkovsky <msink@permonline.ru>");
 MODULE_ALIAS("platform:"DRV_NAME);
@@ -65,6 +64,7 @@ MODULE_LICENSE("GPL");
 #define W5100_Sn_TX_WR		0x0024 /* Sn Transmit memory write pointer */
 #define W5100_Sn_RX_RSR		0x0026 /* Sn Receive free memory size */
 #define W5100_Sn_RX_RD		0x0028 /* Sn Receive memory read pointer */
+#define W5100_PHY_STATUS    0x002E /* PHY status & 0x1 == linked */
 
 #define S0_REGS(priv)		((priv)->s0_regs)
 
@@ -186,6 +186,7 @@ struct w5100_priv {
 	// sekim XXXXXX 20241104 DMA Buffer Alignment Issue
 	u8 spi_transfer_buf[SPI_TRANSFER_BUF_LEN];
 
+    // joseph delayed work queue for link checking
     struct delayed_work link_check_work;
 };
 
@@ -518,50 +519,41 @@ static int w5100_readbulk(struct w5100_priv *priv, u32 addr, u8 *buf, int len)
 {
 	///////////////////////////////////////////////////////////////////////////
 	// sekim XXXXXX 20241104 DMA Buffer Alignment Issue
-    // disable because it can be aligned with allocation
-	if (0) {
+	//return priv->ops->readbulk(priv->ndev, addr, buf, len);
+	{
 		int ret;
 		if ( len>MAX_FRAMELEN )
 		{
-			printk("W5K : w5100_readbulk  RRRRR         : len(%4d) align(%d) addr(0x%08x)  ====> Error\n", len, (int)((uintptr_t)buf % 4), (unsigned int)(uintptr_t)buf);
+			printk(KERN_ERR "W5K : w5100_readbulk  RRRRR         : len(%4d) align(%d) addr(0x%08x)  ====> Error\n", len, (int)((uintptr_t)buf % 4), (unsigned int)(uintptr_t)buf);
 			return -ENOMEM;
 		}
-		printk("W5K : w5100_readbulk  RRRRR         : len(%4d) align(%d) addr(0x%08x ===> 0x%08x) \n", len, (int)((uintptr_t)buf % 4), (unsigned int)(uintptr_t)buf, (unsigned int)(uintptr_t)priv->spi_transfer_buf);
+		//printk("W5K : w5100_readbulk  RRRRR         : len(%4d) align(%d) addr(0x%08x ===> 0x%08x) \n", len, (int)((uintptr_t)buf % 4), (unsigned int)(uintptr_t)buf, (unsigned int)(uintptr_t)priv->spi_transfer_buf);
 		ret = priv->ops->readbulk(priv->ndev, addr, priv->spi_transfer_buf, len);
 		memcpy(buf, priv->spi_transfer_buf, len);
 		return ret;
 	}
 	///////////////////////////////////////////////////////////////////////////
-	return priv->ops->readbulk(priv->ndev, addr, buf, len);
 }
 
 
 static int w5100_writebulk(struct w5100_priv *priv, u32 addr, const u8 *buf, int len)
 {
-    // for debug
-    uintptr_t buf_addr = (uintptr_t)buf;
 	///////////////////////////////////////////////////////////////////////////
 	// sekim XXXXXX 20241104 DMA Buffer Alignment Issue
-    // Due to strict 4-byte alignment requirements of the RP1 DMA controller,
-    // memory must be copied if the buffer is not properly aligned.
-	//if (!IS_ALIGNED((uintptr_t)addr, 4)) {
-	if (!IS_ALIGNED(buf_addr, 4)) {
-        printk("W5K : w5100_writebulk align FAIL: len=%4d align=%d addr=0x%08x, addr2=0x%08x\n", len, (int)(buf_addr % 4), (u32)buf_addr, addr);
+	//return priv->ops->writebulk(priv->ndev, addr, buf, len);
+	{
 		if ( len>MAX_FRAMELEN )
 		{
-			printk("W5K : w5100_writebulk TTTTT         : len(%4d) align(%d) addr(0x%08x)  ====> Error\n", len, (int)((uintptr_t)buf % 4), (unsigned int)(uintptr_t)buf);
+			printk(KERN_ERR "W5K : w5100_writebulk TTTTT         : len(%4d) align(%d) addr(0x%08x)  ====> Error\n", len, (int)((uintptr_t)buf % 4), (unsigned int)(uintptr_t)buf);
 			return -ENOMEM;
 		}
-		//printk("W5K : w5100_writebulk TTTTT         : len(%4d) align(%d) addr(0x%08x ===> 0x%08x) \n", len, (int)((uintptr_t)buf % 4), (unsigned int)(uintptr_t)buf, (unsigned int)(uintptr_t)priv->spi_transfer_buf);
+		printk(KERN_DEBUG "W5K : w5100_writebulk TTTTT         : len(%4d) align(%d) addr(0x%08x ===> 0x%08x) \n", len, (int)((uintptr_t)buf % 4), (unsigned int)(uintptr_t)buf, (unsigned int)(uintptr_t)priv->spi_transfer_buf);
 		memcpy(priv->spi_transfer_buf, buf, len);
 		return priv->ops->writebulk(priv->ndev, addr, priv->spi_transfer_buf, len);
 	}
 	///////////////////////////////////////////////////////////////////////////
-    else {
-        printk("W5K : w5100_writebulk align OK: len=%4d align=%d addr=0x%08x\n", len, (int)(buf_addr % 4), (u32)buf_addr);
-        return priv->ops->writebulk(priv->ndev, addr, buf, len);
-    }
 }
+
 #endif
 
 static int w5100_readbuf(struct w5100_priv *priv, u16 offset, u8 *buf, int len)
@@ -604,9 +596,6 @@ static int w5100_writebuf(struct w5100_priv *priv, u16 offset, const u8 *buf,
 		len = mem_size - offset;
 	}
 
-    if (!IS_ALIGNED((uintptr_t)buf, 4)) {
-        printk("W5K : writebuf() align FAIL: addr=0x%08x len=%d\n", (u32)(uintptr_t)buf, len);
-    }
 	ret = w5100_writebulk(priv, addr, buf, len);
 	if (ret || !remain)
 		return ret;
@@ -700,7 +689,7 @@ static void w5200_memory_configure(struct w5100_priv *priv)
 static void w5500_memory_configure(struct w5100_priv *priv)
 {
 	int i;
-	printk("W5K : w5500_memory_configure() \n");
+	printk(KERN_INFO "W5K : w5500_memory_configure() \n");
 
 	/* Configure internal RX memory as 16K RX buffer and
 	 * internal TX memory as 16K TX buffer
@@ -718,7 +707,7 @@ static int w5100_hw_reset(struct w5100_priv *priv)
 {
 	u32 rtr;
 
-	printk("W5K : w5100_hw_reset() \n");
+	printk(KERN_INFO "W5K : w5100_hw_reset() \n");
 
 	w5100_reset(priv);
 
@@ -752,7 +741,7 @@ static void w5100_hw_start(struct w5100_priv *priv)
 {
 	u8 mode = S0_MR_MACRAW;
 
-	printk("W5K : w5100_hw_start() \n");
+	printk(KERN_INFO "W5K : w5100_hw_start() \n");
 
 	if (!priv->promisc) {
 		if (priv->ops->chip_id == W5500)
@@ -768,7 +757,7 @@ static void w5100_hw_start(struct w5100_priv *priv)
 
 static void w5100_hw_close(struct w5100_priv *priv)
 {
-	printk("W5K : w5100_hw_close() \n");
+	printk(KERN_INFO "W5K : w5100_hw_close() \n");
 	w5100_disable_intr(priv);
 	w5100_command(priv, S0_CR_CLOSE);
 }
@@ -782,7 +771,7 @@ static void w5100_hw_close(struct w5100_priv *priv)
 static void w5100_get_drvinfo(struct net_device *ndev,
 			      struct ethtool_drvinfo *info)
 {
-	printk("W5K : w5100_get_drvinfo() \n");
+	printk(KERN_INFO "W5K : w5100_get_drvinfo() \n");
 	strscpy(info->driver, DRV_NAME, sizeof(info->driver));
 	strscpy(info->version, DRV_VERSION, sizeof(info->version));
 	strscpy(info->bus_info, dev_name(ndev->dev.parent),
@@ -791,9 +780,14 @@ static void w5100_get_drvinfo(struct net_device *ndev,
 
 static u32 w5100_get_link(struct net_device *ndev)
 {
-	printk("W5K : w5100_get_link() \n");
 	struct w5100_priv *priv = netdev_priv(ndev);
+	printk(KERN_INFO "W5K : w5100_get_link() \n");
 
+    // check PHY_STATUS for W5500 only
+    if (priv->ops->chip_id == W5500) {
+        u8 phy_status = w5100_read(priv, W5100_PHY_STATUS);
+        return !!(phy_status & 0x01);
+    }
 	if (gpio_is_valid(priv->link_gpio))
 		return !!gpio_get_value(priv->link_gpio);
 
@@ -865,29 +859,9 @@ static void w5100_tx_skb(struct net_device *ndev, struct sk_buff *skb)
 	struct w5100_priv *priv = netdev_priv(ndev);
 	u16 offset;
 
-    //joseph for debug unaligned address caller
-    /*
-    if (!IS_ALIGNED((uintptr_t)skb->data, 4)) {
-    printk(KERN_ERR "W5K : b4 TX skb->data not aligned: len=%d addr=0x%08x\n",
-           skb->len, (unsigned int)(uintptr_t)skb->data);
-    } else {
-        printk(KERN_INFO "W5K : b4 TX aligned skb->data: len=%d addr=0x%08x\n",
-               skb->len, (unsigned int)(uintptr_t)skb->data);
-    }
-    */
 	offset = w5100_read16(priv, W5100_S0_TX_WR(priv));
 	w5100_writebuf(priv, offset, skb->data, skb->len);
 	w5100_write16(priv, W5100_S0_TX_WR(priv), offset + skb->len);
-    //joseph for debug unaligned address caller
-
-    if (!IS_ALIGNED((uintptr_t)skb->data, 4)) {
-        printk(KERN_ERR "W5K : TX a4 skb->data not aligned: len=%d addr=0x%08x\n",
-           skb->len, (unsigned int)(uintptr_t)skb->data);
-    } else {
-        printk(KERN_INFO "W5K : TX a4 aligned skb->data: len=%d addr=0x%08x\n",
-               skb->len, (unsigned int)(uintptr_t)skb->data);
-    }
-
 	ndev->stats.tx_bytes += skb->len;
 	ndev->stats.tx_packets++;
 	dev_kfree_skb(skb);
@@ -925,6 +899,14 @@ static netdev_tx_t w5100_start_tx(struct sk_buff *skb, struct net_device *ndev)
 	return NETDEV_TX_OK;
 }
 
+/**
+ * w5100_rx_skb - Allocate and prepare skb buffer for incoming packet.
+ *
+ * This function performs safe memory allocation for incoming packet data,
+ * ensuring 4-byte alignment for DMA. Instead of using netdev_alloc_skb_ip_align(),
+ * it manually allocates extra 4 bytes and adjusts the data pointer using skb_reserve()
+ * to meet alignment constraints. Then, it uses skb_put() to finalize tail size.
+ */
 static struct sk_buff *w5100_rx_skb(struct net_device *ndev)
 {
 	struct w5100_priv *priv = netdev_priv(ndev);
@@ -932,29 +914,23 @@ static struct sk_buff *w5100_rx_skb(struct net_device *ndev)
 	u16 rx_len;
 	u16 offset;
 	u8 header[2];
-	u16 rx_buf_len = w5100_read16(priv, W5100_S0_RX_RSR(priv));
+	u16 rx_buf_len;
+
+    // read buffer size from hardware
+	rx_buf_len = w5100_read16(priv, W5100_S0_RX_RSR(priv));
 
 	if (rx_buf_len == 0)
 		return NULL;
 
+    // read packet length from hardware
 	offset = w5100_read16(priv, W5100_S0_RX_RD(priv));
 	w5100_readbuf(priv, offset, header, 2);
 	rx_len = get_unaligned_be16(header) - 2;
 
-    /* joseph ensure 4B align: check skb->data, apply reserve */
-	skb = netdev_alloc_skb(ndev, rx_len + 4);
-    skb_reserve(skb, PTR_ALIGN(skb->data, 4) - skb->data);
-    //joseph for debug unaligned address caller
-    /*
-    if (!IS_ALIGNED((uintptr_t)skb->data, 4)) {
-        printk(KERN_ERR "W5K : RX a4 skb->data not aligned: len=%d addr=0x%08x\n",
-               skb->len, (unsigned int)(uintptr_t)skb->data);
-    } else {
-        printk(KERN_INFO "W5K : RX a4 aligned skb->data: len=%d addr=0x%08x\n",
-               skb->len, (unsigned int)(uintptr_t)skb->data);
-    }
-    */
-	//skb = netdev_alloc_skb_ip_align(ndev, rx_len);
+    // skb->data will be used for DMA ==>  must ensure 4-byte alignment
+    // instead of netdev_alloc_skb_ip_align(), directly allocate len + 4
+    // for it only provides 2B alignment
+    skb = netdev_alloc_skb(ndev, rx_len + 4);
 	if (unlikely(!skb)) {
 		w5100_write16(priv, W5100_S0_RX_RD(priv), offset + rx_buf_len);
 		w5100_command(priv, S0_CR_RECV);
@@ -962,16 +938,13 @@ static struct sk_buff *w5100_rx_skb(struct net_device *ndev)
 		return NULL;
 	}
 
-    /* joseph ensure 4B align: check skb->data, apply reserve */
-    if (((unsigned long)skb->data) & (4 - 1) && 0) {
-        int adjust = ALIGN((unsigned long)skb->data, 4) - (unsigned long)skb->data;
-        skb_reserve(skb, adjust);
-        if (!IS_ALIGNED((uintptr_t)skb->data, 4)) {
-            printk("W5K : w5100_rx_skb align  : len(%4d) align(%d) addr(0x%08x) ===>               alignment((%d) Error \n", (int)rx_buf_len, (int)((uintptr_t)skb->data % 4), (unsigned int)(uintptr_t)skb->data, (int)((uintptr_t)skb->data % 4));
-        }
-    }
+    // ensure 4-byte aligned start address of data
+    skb_reserve(skb, PTR_ALIGN(skb->data, 4) - skb->data);
 
+    // set end address of data
 	skb_put(skb, rx_len);
+
+    // read data from hardware into skb->data
 	w5100_readbuf(priv, offset + 2, skb->data, rx_len);
 	w5100_write16(priv, W5100_S0_RX_RD(priv), offset + 2 + rx_len);
 	w5100_command(priv, S0_CR_RECV);
@@ -1046,7 +1019,7 @@ static irqreturn_t w5100_interrupt(int irq, void *ndev_instance)
 
 static irqreturn_t w5100_detect_link(int irq, void *ndev_instance)
 {
-	printk("W5K : w5100_detect_link() \n");
+	printk(KERN_INFO "W5K : w5100_detect_link() \n");
 	struct net_device *ndev = ndev_instance;
 	struct w5100_priv *priv = netdev_priv(ndev);
 
@@ -1088,7 +1061,7 @@ static void w5100_set_rx_mode(struct net_device *ndev)
 
 static int w5100_set_macaddr(struct net_device *ndev, void *addr)
 {
-	printk("W5K : w5100_set_macaddr() \n");
+	printk(KERN_INFO "W5K : w5100_set_macaddr() \n");
 	struct w5100_priv *priv = netdev_priv(ndev);
 	struct sockaddr *sock_addr = addr;
 
@@ -1101,7 +1074,7 @@ static int w5100_set_macaddr(struct net_device *ndev, void *addr)
 
 static int w5100_open(struct net_device *ndev)
 {
-	printk("W5K : w5100_open() \n");
+	printk(KERN_INFO "W5K : w5100_open() \n");
 	struct w5100_priv *priv = netdev_priv(ndev);
 
 	netif_info(priv, ifup, ndev, "enabling\n");
@@ -1116,7 +1089,7 @@ static int w5100_open(struct net_device *ndev)
 
 static int w5100_stop(struct net_device *ndev)
 {
-	printk("W5K : w5100_stop() \n");
+	printk(KERN_INFO "W5K : w5100_stop() \n");
 	struct w5100_priv *priv = netdev_priv(ndev);
 
 	netif_info(priv, ifdown, ndev, "shutting down\n");
@@ -1197,8 +1170,7 @@ int w5100_probe(struct device *dev, const struct w5100_ops *ops,
 	int err;
 	size_t alloc_size;
 
-    //joseph link_gpio is not supported: value will be -22
-	printk("W5K : w5100_probe (irq:%d, link_gpio:%d) \n", irq, link_gpio);
+	printk(KERN_INFO "W5K : w5100_probe (irq:%d, link_gpio:%d) \n", irq, link_gpio);
 
 	alloc_size = sizeof(*priv);
 	if (sizeof_ops_priv) {
@@ -1345,7 +1317,7 @@ void w5100_remove(struct device *dev)
 	struct net_device *ndev = dev_get_drvdata(dev);
 	struct w5100_priv *priv = netdev_priv(ndev);
 
-	printk("W5K : w5100_remove() \n");
+	printk(KERN_INFO "W5K : w5100_remove() \n");
 
     // joseph delayed work queue for link checking
     cancel_delayed_work_sync(&priv->link_check_work);
@@ -1416,7 +1388,6 @@ static void w5100_link_check_work(struct work_struct *work)
     struct w5100_priv *priv = container_of(to_delayed_work(work), struct w5100_priv, link_check_work);
     struct net_device *ndev = priv->ndev;
     u8 phy_status;
-    #define W5100_PHY_STATUS 0x002E
 
     phy_status = w5100_read(priv, W5100_PHY_STATUS);
 
@@ -1435,3 +1406,5 @@ static void w5100_link_check_work(struct work_struct *work)
     // schedule next in 5 sec
     queue_delayed_work(system_wq, &priv->link_check_work, msecs_to_jiffies(5000));
 }
+
+

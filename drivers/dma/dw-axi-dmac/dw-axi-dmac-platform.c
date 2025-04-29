@@ -709,10 +709,10 @@ static int dw_axi_dma_set_hw_desc(struct axi_dma_chan *chan,
 	}
 	*/
 	if (!IS_ALIGNED(mem_addr, 4)) {
-		printk("W5K : dw_axi_dma_set_hw_desc align  : len(%4d) align(%d) addr(0x%08x) ===> alignment((%d) Error \n", (int)len, (int)((uintptr_t)mem_addr % 4), (unsigned int)(uintptr_t)mem_addr, (int)((uintptr_t)mem_addr % 4));
+		printk(KERN_ERR "W5K : dw_axi_dma_set_hw_desc align  : len(%4d) align(%d) addr(0x%08x) ===> alignment((%d) Error \n", (int)len, (int)((uintptr_t)mem_addr % 4), (unsigned int)(uintptr_t)mem_addr, (int)((uintptr_t)mem_addr % 4));
 	}
 	else { 
-		printk("W5K : dw_axi_dma_set_hw_desc align  : len(%4d) align(%d) addr(0x%08x) \n", (int)len, (int)((uintptr_t)mem_addr % 4), (unsigned int)((uintptr_t)mem_addr));
+		//printk("W5K : dw_axi_dma_set_hw_desc align  :2len(%4d) align(%d) addr(0x%08x) \n", (int)len, (int)((uintptr_t)mem_addr % 4), (unsigned int)((uintptr_t)mem_addr));
 	}
 	//////////////////////////////////////////////////////////////////////////////////////////////////////
 
