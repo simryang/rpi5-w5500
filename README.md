@@ -257,10 +257,10 @@ To assign a specific MAC address to the W5500, modify the W5500 overlay file as 
 Download v1.0.0 from release
 (https://github.com/)
 
-Just run InstallRpi5W5500KernelDriver.bsx with sudo previlege
+Just run [InstallRpi5W5500KernelDriver.bsx](https://github.com/simryang/rpi5-w5500/releases/download/v1.0.0/InstallRpi5W5500KernelDriver_v1.0.0.bsx) with sudo previlege
 sudo ./InstallRpi5W5500KernelDriver.bsx
 
-or download zip and copy boot to /boot, and lib to /lib
+or download [zip file](https://github.com/simryang/rpi5-w5500/releases/download/v1.0.0/rpi5w5500_v1.0.0.tar.xz) and copy boot to /boot, and lib to /lib
 
 ## Preparing a USB Drive
 
