@@ -1,8 +1,31 @@
 # Build Raspberry Pi 5 Linux Kernel with W5500 Support
 
 ## Overview
-
 This guide walks you through building and customizing the Linux kernel for the Raspberry Pi 5, including support for the WIZnet W5500 Ethernet module via the WIZ850io. This setup uses Windows with WSL 2 as the development environment and covers kernel modifications, hardware setup, and essential debugging steps.
+
+The Raspberry Pi 5 introduces the RP1 I/O controller, a new custom silicon that manages all peripheral interfaces such as USB, SPI, and Ethernet. While powerful, RP1 enforces strict constraints for DMA memory alignment, especially for SPI transfers. This guide documents how to adapt the Linux kernel and WIZnet driver to meet these requirements, ensuring stable and efficient communication with the W5500 module.
+
+### RP1 I/O Controller and Its DMA Constraints
+#### What is RP1?
+
+The RP1 is the custom I/O controller chip designed by the Raspberry Pi Foundation and introduced with the Raspberry Pi 5. It replaces the traditional USB and peripheral management components found in earlier models. RP1 is responsible for managing a variety of peripherals, including:
+
+- USB 3.0 and 2.0 ports
+- Gigabit Ethernet
+- GPIO
+- SPI, I2C, UART
+- DMA channels for high-speed data transfers
+- Reference: Raspberry Pi 5 Hardware Overview
+
+#### 4-Byte Alignment Requirement from RP1 DMA
+
+During development, we observed that SPI transfers routed through the RP1 DMA controller impose a strict 4-byte memory alignment constraint on DMA buffers. If the buffers passed to the DMA engine (e.g., via SPI readbulk() or writebulk()) are not aligned to 4 bytes, the RP1 DMA either:
+- Logs an error in the kernel ring buffer
+- Or worse, causes a silent failure or system instability
+
+This behavior is not present on earlier models (e.g., Raspberry Pi 4) using BCM2711 I/O pathways.
+
+To address this, all SPI DMA buffers must be aligned to 4-byte boundaries, even if the actual data size is not a multiple of 4 bytes.
 
 
 ## Development Environment
@@ -85,32 +108,73 @@ struct w5100_priv {
 	struct work_struct setrx_work;
 	struct work_struct restart_work;
 
-	// sekim 20241015 add thread for Link
-	struct task_struct *monitor_thread; 
-	
 	// sekim XXXXXX 20241104 DMA Buffer Alignment Issue
-	u8 spi_transfer_buf[SPI_TRANSFER_BUF_LEN];
+        u8 spi_transfer_buf[SPI_TRANSFER_BUF_LEN];
+
+        // joseph delayed work queue for link checking
+        struct delayed_work link_check_work;
 };
+..................................
+int w5100_probe(struct device *dev, const struct w5100_ops *ops,
+        int sizeof_ops_priv, const void *mac_addr, int irq,
+        int link_gpio)
+{
+...
+    if (gpio_is_valid(priv->link_gpio)) {
+        char *link_name = devm_kzalloc(dev, 16, GFP_KERNEL);
+        if (!link_name) {
+            err = -ENOMEM;
+            goto err_gpio;
+        }
+        snprintf(link_name, 16, "%s-link", netdev_name(ndev));
+        priv->link_irq = gpio_to_irq(priv->link_gpio);
+        if (request_any_context_irq(priv->link_irq, w5100_detect_link,
+                        IRQF_TRIGGER_RISING |
+                        IRQF_TRIGGER_FALLING,
+                        link_name, priv->ndev) < 0)
+            priv->link_gpio = -EINVAL;
+    }
+
+    //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+    // joseph delayed work queue for link checking
+    {
+        int link_interval_ms = 5000;
+
+        INIT_DELAYED_WORK(&priv->link_check_work, w5100_link_check_work);
+        queue_delayed_work(system_wq, &priv->link_check_work, msecs_to_jiffies(link_interval_ms));
+        printk(KERN_INFO "W5K : scheduled delayed work for link check every %d ms\n", link_interval_ms);
+    }
+    //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+..................................
+void w5100_remove(struct device *dev)
+{
+    struct net_device *ndev = dev_get_drvdata(dev);
+    struct w5100_priv *priv = netdev_priv(ndev);
+
+    printk(KERN_INFO "W5K : w5100_remove() \n");
+
+    // joseph delayed work queue for link checking
+    cancel_delayed_work_sync(&priv->link_check_work);
 ..................................
 
 static int w5100_readbulk(struct w5100_priv *priv, u32 addr, u8 *buf, int len)
 {
-	///////////////////////////////////////////////////////////////////////////
-	// sekim XXXXXX 20241104 DMA Buffer Alignment Issue
-	//return priv->ops->readbulk(priv->ndev, addr, buf, len);
-	{
-		int ret;
-		if ( len>MAX_FRAMELEN )
-		{
-			printk("W5K : w5100_readbulk  RRRRR         : len(%4d) align(%d) addr(0x%08x)  ====> Error\n", len, (int)((uintptr_t)buf % 4), (unsigned int)(uintptr_t)buf);
-			return -ENOMEM;
-		}
-		printk("W5K : w5100_readbulk  RRRRR         : len(%4d) align(%d) addr(0x%08x ===> 0x%08x) \n", len, (int)((uintptr_t)buf % 4), (unsigned int)(uintptr_t)buf, (unsigned int)(uintptr_t)priv->spi_transfer_buf);
-		ret = priv->ops->readbulk(priv->ndev, addr, priv->spi_transfer_buf, len);
-		memcpy(buf, priv->spi_transfer_buf, len);
-		return ret;
-	}
-	///////////////////////////////////////////////////////////////////////////
+    ///////////////////////////////////////////////////////////////////////////
+    // sekim XXXXXX 20241104 DMA Buffer Alignment Issue
+    //return priv->ops->readbulk(priv->ndev, addr, buf, len);
+    {
+        int ret;
+        if ( len>MAX_FRAMELEN )
+        {
+            printk(KERN_ERR "W5K : w5100_readbulk  RRRRR         : len(%4d) align(%d) addr(0x%08x)       ====> Error\n", len, (int)((uintptr_t)buf % 4), (unsigned int)(uintptr_t)buf);
+            return -ENOMEM;
+        }
+        //printk("W5K : w5100_readbulk  RRRRR         : len(%4d) align(%d) addr(0x%08x ===> 0x%08x) \n", len, (int)((uintptr_t)buf % 4), (unsigned int)(uintptr_t)buf, (unsigned int)(uintptr_t)priv->spi_transfer_buf);
+        ret = priv->ops->readbulk(priv->ndev, addr, priv->spi_transfer_buf, len);
+        memcpy(buf, priv->spi_transfer_buf, len);
+        return ret;
+    }
+    ///////////////////////////////////////////////////////////////////////////
 }
 
 static int w5100_writebulk(struct w5100_priv *priv, u32 addr, const u8 *buf, int len)
@@ -187,6 +251,14 @@ After applying this monitoring thread, if you disconnect and reconnect the Ether
 
 To assign a specific MAC address to the W5500, modify the W5500 overlay file as shown below. This customization allows control over the MAC address, which can be useful for network identification and management.  
 ![image](https://github.com/user-attachments/assets/fcd9aaa2-1abd-41f8-b2ec-7cd43b35c95f)
+
+## Usage download v1.0.0 from release
+(https://github.com/)
+
+Just run InstallRpi5W5500KernelDriver.bsx with sudo previlege
+sudo ./InstallRpi5W5500KernelDriver.bsx
+
+or download zip and copy boot to /boot, and lib to /lib
 
 ## Preparing a USB Drive
 
