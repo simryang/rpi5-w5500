@@ -323,12 +323,13 @@ To assign a specific MAC address to the W5500, modify the W5500 overlay file as 
 ![image](https://github.com/user-attachments/assets/fcd9aaa2-1abd-41f8-b2ec-7cd43b35c95f)
 
 ## Usage
+### Installation via Script
+You can download the installation script and run it with superuser privileges:
 
-Download v1.0.0 from release
-(https://github.com/)
-
-Just run [InstallRpi5W5500KernelDriver.bsx](https://github.com/simryang/rpi5-w5500/releases/download/v1.0.0/InstallRpi5W5500KernelDriver_v1.0.0.bsx) with sudo previlege
-sudo ./InstallRpi5W5500KernelDriver.bsx
+```bash
+wget https://github.com/simryang/rpi5-w5500/releases/download/v1.0.0/InstallRpi5W5500KernelDriver_v1.0.0.bsx
+sudo bash InstallRpi5W5500KernelDriver_v1.0.0.bsx
+```
 
 or download [zip file](https://github.com/simryang/rpi5-w5500/releases/download/v1.0.0/rpi5w5500_v1.0.0.tar.xz) and copy boot to /boot, and lib to /lib
 
@@ -373,6 +374,85 @@ sudo nano mnt/boot/cmdline.txt
 Refer to the following link for Raspberry Pi kernel compilation: https://www.raspberrypi.com/documentation/computers/linux_kernel.html
 
 Set the default configuration when building the kernel.
+
+There are two ways to build and deploy the Linux kernel with W5500 support.
+This section describes the recommended automated workflow using the build.sh script, as well as a fallback manual SD card copy method.
+### Method 1: Build on Host and Deploy via SSH (build.sh + Apply.sh)
+Step 1: Run build.sh from the Repository Root
+
+The build.sh script compiles the kernel, modules, and device tree files, and stores all output under TEMP/boot and TEMP/lib.
+
+Save the following as build.sh in your project root:
+
+```bash
+#!/usr/bin/env bash
+
+set -e
+
+KERNEL=kernel_2712
+
+echo "[Step 1] Creating defconfig..."
+make -j$(nproc) ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- bcm2712_defconfig > log_defconfig.txt
+
+# Optional: customize kernel settings
+# make menuconfig
+
+# Output directories
+TARGETDIROVERLAY=TEMP/boot/overlays
+TARGETDIRBOOT=$(dirname "$TARGETDIROVERLAY")
+TARGETDIRROOT=$(dirname "$TARGETDIRBOOT")
+
+mkdir -p $TARGETDIROVERLAY
+echo "Output folders: $TARGETDIRROOT, $TARGETDIRBOOT, $TARGETDIROVERLAY"
+
+echo "[Step 2] Building kernel, modules, and device trees..."
+make -j$(nproc) V=1 ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- Image modules dtbs > log_image_dtb.txt
+
+echo "[Step 3] Installing kernel modules to $TARGETDIRROOT/lib"
+make -j$(nproc) ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- INSTALL_MOD_PATH=${TARGETDIRROOT} modules_install
+
+echo "[Step 4] Copying Image and DTBs to $TARGETDIRBOOT"
+cp arch/arm64/boot/Image ${TARGETDIRBOOT}/${KERNEL}.img
+cp arch/arm64/boot/dts/broadcom/*.dtb ${TARGETDIRBOOT}
+cp arch/arm64/boot/dts/overlays/*.dtb* ${TARGETDIROVERLAY}
+cp arch/arm64/boot/dts/overlays/README ${TARGETDIROVERLAY}
+
+echo "Kernel build completed. Artifacts are in TEMP/boot and TEMP/lib."
+
+Step 2: Deploy to RPi5 via rsync + ssh
+
+Use this command on your host to build and deploy in one shot:
+
+time ./build.sh && time rsync -az -e 'ssh -p pi5_remote_port' TEMP/ pi@pi5_ip_address:TEMP/ && date
+```
+
+This copies the build artifacts from your host PC into /home/pi/TEMP/ on the Raspberry Pi.
+Step 3: Run Apply.sh on the Raspberry Pi
+
+On the Raspberry Pi side, use the following script to apply the changes and reboot:
+
+```bash
+#!/usr/bin/env bash
+sudo rsync -av --update TEMP/boot/ /boot/
+sudo rsync -av --update TEMP/lib/ /lib/
+sudo mv /boot/kernel*.img /boot/firmware/
+sudo reboot
+```
+
+Save this as Apply.sh in /home/pi/, and run it with:
+
+```bash
+chmod +x Apply.sh
+./Apply.sh
+```
+
+    � --update ensures only newer files overwrite existing ones.
+    � Kernel image is moved to /boot/firmware/ to match some RPi5 firmware setups.
+
+### Method 2: Manual Copy Using SD Card in Card Reader
+
+This method manually mounts an SD card or USB boot media and copies the compiled files.
+
 
 ```bash
 KERNEL=kernel_2712
