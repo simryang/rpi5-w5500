@@ -249,6 +249,76 @@ static int w5100_monitor_thread(void *data)
 After applying this monitoring thread, if you disconnect and reconnect the Ethernet port, you should see debug messages similar to the following:  
 ![image](https://github.com/user-attachments/assets/26111875-84e5-49f6-834f-b93392ebc7fb)
 
+## Switched to delayed_work for Link Monitoring
+
+While the original implementation using a dedicated kernel thread (kthread_run) worked for detecting W5500 link state changes, it had some drawbacks:
+### Why We Replaced the Kernel Thread
+
+    Resource Overhead: Even when idle, the kernel thread consumes memory and scheduling resources.
+
+    Inefficient for Simple Periodic Tasks: The job only needs to run every few seconds, not continuously.
+
+    Not Easily Cancelable: Threads must be explicitly stopped and cleaned up.
+
+### Advantages of Using delayed_work
+
+    Lightweight and Timer-Based: delayed_work uses the Linux kernel's workqueue system and doesn’t create a new thread.
+
+    Simplified Lifecycle Management: Easily scheduled, rescheduled, or canceled.
+
+    Better Kernel Conventions: Aligns with how other networking drivers handle polling or recovery tasks.
+
+### Implementation
+
+Replaced structure field:
+
+```
+- struct task_struct *monitor_thread;
++ struct delayed_work link_check_work;
+```
+
+Replaced thread function:
+
+```
+// joseph delayed work queue for link checking
+static void w5100_link_check_work(struct work_struct *work)
+{
+    struct w5100_priv *priv = container_of(to_delayed_work(work), struct w5100_priv, link_check_work);
+    struct net_device *ndev = priv->ndev;
+    u8 phy_status;
+
+    phy_status = w5100_read(priv, W5100_PHY_STATUS);
+
+    if (phy_status & 0x01) {
+        if (!netif_carrier_ok(ndev)) {
+            netif_carrier_on(ndev);
+            netdev_info(ndev, "W5K : Link is UP\n");
+        }
+    } else {
+        if (netif_carrier_ok(ndev)) {
+            netif_carrier_off(ndev);
+            netdev_info(ndev, "W5K : Link is DOWN\n");
+        }
+    }
+
+    // Re-schedule the work after 5 seconds
+    queue_delayed_work(system_wq, &priv->link_check_work, msecs_to_jiffies(5000));
+}
+```
+
+Initialized during probe:
+
+```
+INIT_DELAYED_WORK(&priv->link_check_work, w5100_link_check_work);
+queue_delayed_work(system_wq, &priv->link_check_work, msecs_to_jiffies(5000));
+```
+
+Cleaned up during removal:
+
+```
+cancel_delayed_work_sync(&priv->link_check_work);
+```
+
 To assign a specific MAC address to the W5500, modify the W5500 overlay file as shown below. This customization allows control over the MAC address, which can be useful for network identification and management.  
 ![image](https://github.com/user-attachments/assets/fcd9aaa2-1abd-41f8-b2ec-7cd43b35c95f)
 
